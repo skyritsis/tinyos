@@ -41,7 +41,8 @@ void Mutex_Unlock(Mutex* lock)
 
 void Mutex_Lock(Mutex* lock)
 {
-  
+	while(!Mutex_TryLock(lock))
+		yield();
 }
 
 void Cond_Init(CondVar* cv)
@@ -50,19 +51,50 @@ void Cond_Init(CondVar* cv)
   cv->wstail = NULL;
 }
 
-void Cond_Wait(Mutex* mx, CondVar* cv)
+static Mutex condvar_mutex = MUTEX_INIT;
+
+void Cond_Wait(Mutex* mutex, CondVar* cv)
 {
 
+	tinyos_cv_waiter waitnode;
+	waitnode.pid = GetPid();
+	waitnode.next = NULL;
+
+	Mutex_Lock(&condvar_mutex);
+
+	if(cv->waitset==NULL)
+		cv->wstail = &(cv->waitset);
+	*(cv->wstail) = &waitnode;
+	cv->wstail = &(waitnode.next);
+
+	Mutex_Unlock(mutex);
+	release_and_sleep(STOP_CVWAIT, &condvar_mutex);
+
+	Mutex_Lock(mutex);
+}
+
+static void doSignal(CondVar* cv)
+{
+	if(cv->waitset != NULL){
+		tinyos_cv_waiter *node = cv->waitset;
+		cv->waitset = node->next;
+		wakeup(node->pid,STOP_CVWAIT);
+	}
 }
 
 void Cond_Signal(CondVar* cv)
 {
-
+	Mutex_Lock(&condvar_mutex);
+	doSignal(cv);
+	Mutex_Unlock(&condvar_mutex);
 }
 
 void Cond_Broadcast(CondVar* cv)
 {
-
+	Mutex_Lock(&condvar_mutex);
+	while(cv->waitset != NULL)
+		doSignal(cv);
+	Mutex_Unlock(&condvar_mutex);
 }
 
 
@@ -78,9 +110,10 @@ void Exit(int exitval)
 
 }
 
-Pid_t Exec(Task call, int argl, void* args)
+Pid_t EXec(Task call, int argl, void* args)
 {
-  return NOPROC;
+	call(argl,args);
+	return NOPROC;
 }
 
 Pid_t GetPid()
