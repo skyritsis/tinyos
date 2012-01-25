@@ -158,10 +158,8 @@ int Symposium(int argl, void* args)
   for(i=0;i<N;i++) {
     pid = WaitChild(NOPROC, NULL);
   }
-
   free(state);
   free(hungry);
-
   return 0;
 }
 
