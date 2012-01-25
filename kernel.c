@@ -53,9 +53,27 @@ void reset_timer()
 	setitimer(ITIMER_VIRTUAL, &quantum_itimer, NULL);
 }
 
+sigset_t scheduler_sigmask;
+/*sigemptyset(&scheduler_sigmask);
+sigaddset(&scheduler_sigmask, SIGVTALRM);*/
 
 void schedule(int sig){
+	PCB *old, *new;
 
+	//pause scheduling
+	pause_scheduling();
+	old = curproc;
+	//new = pick_next_thread();
+
+	if(old->state==FINISHED);
+		//final_cleanup(old);
+
+	reset_timer();
+	//resume scheduling
+	resume_scheduling();
+	curproc = new;
+	if(old!=new)
+		swapcontext(&new->context,&old->context);
 }
 
 void yield() {schedule(0);}
@@ -74,7 +92,7 @@ void run_scheduler()
 	reset_timer();
 
 	curproc = ProcessTable[0];
-	//swapcontext(&_saved_context, &(curproc->context));
+	swapcontext(&_saved_context, &(curproc->context));
 }
 
 int Mutex_TryLock(Mutex *lock)
@@ -161,9 +179,6 @@ void init_context(ucontext_t* uc, void* stack, size_t stack_size, Task task, int
 
 #define PROCESS_STACK_SIZE 65536
 
-sigset_t scheduler_sigmask;
-/*sigemptyset(&scheduler_sigmask);
-sigaddset(&scheduler_sigmask, SIGVTALRM);*/
 
 void pause_scheduling() {sigprocmask(SIG_BLOCK,&scheduler_sigmask, NULL);}
 void resume_scheduling() {sigprocmask(SIG_UNBLOCK, &scheduler_sigmask, NULL);}
