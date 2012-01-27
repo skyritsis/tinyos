@@ -28,7 +28,7 @@ typedef struct PCB_s {
 }PCB;
 
 typedef struct rlist {
-	PCB* proc;
+	Pid_t proc;
 	struct rlist* prev;
 	struct rlist* next;
 }Read;
@@ -73,23 +73,22 @@ void schedule(int sig){
 	Read* i;
 	//pause scheduling
 	pause_scheduling();
-	old = curproc->proc;
-	new = head->proc;
+	old = &ProcessTable[curproc->proc];
+	new = &ProcessTable[head->proc];
 	head = head->next;
-	//printf("\nArg %d",i->proc->pid);
-	//printf("\nold %d new %d curproc %d",old->pid,new->pid,curproc->proc->pid);
 	if(old->state==FINISHED);
 		//final_cleanup(old);
 
 	reset_timer();
 	//resume scheduling
+	curproc->proc = new->pid;
 	resume_scheduling();
-	curproc->proc = new;
-	//printf("\nold %d new %d curproc %d",old->pid,new->pid,curproc->pid);
-	if(old!=new){
-		//printf("\nold %d new %d curproc %d",old->pid,new->pid,curproc->proc->pid);
-		swapcontext(&(old->context),&(new->context));
-	}
+	if(old!=new)
+	{
+		printf("\nold = %d, new = %d, cur = %d",old->pid,new->pid,curproc->proc);
+		swapcontext(&old->context,&new->context);}
+	else
+		getcontext(&old->context);
 }
 
 void wakeup(Pid_t pid){
@@ -102,8 +101,8 @@ void release_and_sleep(Mutex* cv){
 	//printf("\ncurp %d %d %d \n",curproc->proc->pid,head->proc->pid,tail->proc->pid);
 	Mutex_Lock(cv);
 	//printf("\ncurp %d %d %d \n",curproc->proc->pid,head->proc->pid,tail->proc->pid);
-	curproc->proc->state = SLEEPING;
-	printf("%d process is sleeping",curproc->proc->pid);
+	ProcessTable[curproc->proc].state = SLEEPING;
+	printf("%d process is sleeping",curproc->proc);
 	//printf("\ncurp %d %d %d \n",curproc->proc->pid,head->proc->pid,tail->proc->pid);
 	Mutex_Unlock(cv);
 	yield();
@@ -124,7 +123,7 @@ void run_scheduler()
 	reset_timer();
 
 	curproc = head;
-	swapcontext(&kernel_context,&curproc->proc->context);
+	swapcontext(&kernel_context,&(ProcessTable[curproc->proc].context));
 }
 
 int Mutex_TryLock(Mutex *lock)
@@ -202,12 +201,15 @@ void Cond_Broadcast(CondVar* cv)
 
 void init_context(ucontext_t* uc, void* stack, size_t stack_size, Task call, int argl, void* args)
 {
+	void* arg;
 	getcontext(uc);
 	uc->uc_link = NULL;
 	uc->uc_stack.ss_sp = stack;
 	uc->uc_stack.ss_size = stack_size;
 	uc->uc_stack.ss_flags = 0;
-	makecontext(uc, call, 2, argl, args);
+	arg = malloc(argl);
+	memcpy(arg,args,argl);
+	makecontext(uc, call, 2, argl, arg);
 }
 
 #define PROCESS_STACK_SIZE 65536
@@ -228,16 +230,17 @@ void Exit(int exitval)
 Pid_t Exec(Task call, int argl, void* args)
 {
 	ucontext_t unew;
+	Read *temp;
 	void* stack = malloc(PROCESS_STACK_SIZE);
 	Mutex_Lock(&kernel_lock);
 	PCBcnt = PCBcnt+1;
-	init_context(&unew, stack, PROCESS_STACK_SIZE, call, argl, args);
-	ProcessTable[PCBcnt].context = unew;
-	ProcessTable[PCBcnt].parent_pid = (curproc==NULL) ? 0 : curproc->proc->pid;
+	init_context(&ProcessTable[PCBcnt].context, stack, PROCESS_STACK_SIZE, call, argl, args);
+	//ProcessTable[PCBcnt].context = unew;
+	ProcessTable[PCBcnt].parent_pid = (curproc==NULL) ? 0 : curproc->proc;
 	ProcessTable[PCBcnt].pid = PCBcnt;
 	ProcessTable[PCBcnt].state = READY;
-	Read *temp = malloc(sizeof(Read*));
-	temp->proc = &ProcessTable[PCBcnt];
+	temp = malloc(sizeof(Read*));
+	temp->proc = PCBcnt;
 	temp->next = NULL;
 	temp->prev = NULL;
 	if(head==NULL)
@@ -254,12 +257,12 @@ Pid_t Exec(Task call, int argl, void* args)
 		temp->next = head;
 	}
 	Mutex_Unlock(&kernel_lock);
-	return 1;//curproc->pid;
+	return ProcessTable[PCBcnt].pid;//curproc->pid;
 }
 
 Pid_t GetPid()
 {
-  return curproc->proc->pid;
+  return curproc->proc;
 }
 
 
@@ -286,7 +289,7 @@ void boot(Task boot_task, int argl, void* args)
 	PCBcnt = 0;
 	curproc=NULL;
 	head = NULL;
-	tail = head;
+	//tail = head;
 	sigemptyset(&scheduler_sigmask);
 	sigaddset(&scheduler_sigmask, SIGVTALRM);
 	quantum_itimer.it_interval.tv_sec = 0L;
