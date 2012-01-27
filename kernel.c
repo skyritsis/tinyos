@@ -7,6 +7,7 @@
 #include <sys/time.h>
 #include <sys/types.h>
 #include <unistd.h>
+#include <string.h>
 
 #include "syscalls.h"
 
@@ -29,7 +30,6 @@ typedef struct PCB_s {
 
 typedef struct rlist {
 	Pid_t proc;
-	struct rlist* prev;
 	struct rlist* next;
 }Read;
 
@@ -73,37 +73,58 @@ void schedule(int sig){
 	Read* i;
 	//pause scheduling
 	pause_scheduling();
+	if(ProcessTable[curproc->proc].state==READY)
+	{
+		tail->next = curproc;
+		tail = tail->next;
+		tail->next = NULL;
+	}
 	old = &ProcessTable[curproc->proc];
-	new = &ProcessTable[head->proc];
-	head = head->next;
-	if(old->state==FINISHED);
+	//if(old->state==FINISHED);
 		//final_cleanup(old);
 
 	reset_timer();
 	//resume scheduling
-	curproc->proc = new->pid;
+	//curproc->proc = new->pid;
+	if(head==NULL)
+		head=tail;
+	new = &ProcessTable[head->proc];
+	curproc = head;
+	head = head->next;
 	resume_scheduling();
 	if(old!=new)
 	{
-		printf("\nold = %d, new = %d, cur = %d",old->pid,new->pid,curproc->proc);
+		//printf("\nold = %d, new = %d, cur = %d",old->pid,new->pid,curproc->proc);
 		swapcontext(&old->context,&new->context);}
 	else
 		getcontext(&old->context);
 }
 
 void wakeup(Pid_t pid){
+	Read *temp;
+
 	ProcessTable[pid].state = READY;
+	temp = malloc(sizeof(Read*));
+	temp->proc = pid;
+	temp->next = NULL;
+	if(head==NULL)
+	{
+		head=temp;
+		head->next = tail;
+	}
+	else
+	{
+		tail->next = temp;
+	}
+	yield();
+	//curproc->next=NULL;
 }
 
 void yield() {schedule(0);}
 
 void release_and_sleep(Mutex* cv){
-	//printf("\ncurp %d %d %d \n",curproc->proc->pid,head->proc->pid,tail->proc->pid);
-	Mutex_Lock(cv);
-	//printf("\ncurp %d %d %d \n",curproc->proc->pid,head->proc->pid,tail->proc->pid);
 	ProcessTable[curproc->proc].state = SLEEPING;
-	printf("%d process is sleeping",curproc->proc);
-	//printf("\ncurp %d %d %d \n",curproc->proc->pid,head->proc->pid,tail->proc->pid);
+	//printf("%d process is sleeping",curproc->proc);
 	Mutex_Unlock(cv);
 	yield();
 }
@@ -137,7 +158,7 @@ int Mutex_TryLock(Mutex *lock)
 
 void Mutex_Unlock(Mutex* lock)
 {
-  *lock = MUTEX_INIT;
+  *lock = 1;
 }
 
 void Mutex_Lock(Mutex* lock)
@@ -169,8 +190,7 @@ void Cond_Wait(Mutex* mutex, CondVar* cv)
 	cv->wstail = &(waitnode.next);
 
 	Mutex_Unlock(mutex);
-	printf("\nold  new \n");
-	release_and_sleep(mutex);
+	release_and_sleep(&condvar_mutex);
 
 	Mutex_Lock(mutex);
 }
@@ -199,6 +219,13 @@ void Cond_Broadcast(CondVar* cv)
 	Mutex_Unlock(&condvar_mutex);
 }
 
+void runFunc(Task func,int argl,void* args)
+{
+	int x;
+	x=func(argl,args);//trexoyme thn synarthsh poy pernaei san orisma(func)me ta orismata ths(args)
+	Exit(x);//molis teleiwsei h parapanw synarthsh, termatizoyme thn diergasia
+}
+
 void init_context(ucontext_t* uc, void* stack, size_t stack_size, Task call, int argl, void* args)
 {
 	void* arg;
@@ -209,7 +236,7 @@ void init_context(ucontext_t* uc, void* stack, size_t stack_size, Task call, int
 	uc->uc_stack.ss_flags = 0;
 	arg = malloc(argl);
 	memcpy(arg,args,argl);
-	makecontext(uc, call, 2, argl, arg);
+	makecontext(uc, runFunc, 3, call, argl, arg);
 }
 
 #define PROCESS_STACK_SIZE 65536
@@ -224,7 +251,10 @@ void init_context(ucontext_t* uc, void* stack, size_t stack_size, Task call, int
 
 void Exit(int exitval)
 {
-
+	ProcessTable[curproc->proc].exitvalue=exitval;//8etoyme to exit code ths diergasias iso me to exitval(pernaei san orisma)
+	ProcessTable[curproc->proc].state=FINISHED;//kanoyme to state ths diergasias FINISHED
+	yield();//trexoyme thn epomenh diergasia(h diergasia poy molis teleiwse bgainei apo th lista toy scheduler
+	printf("\nton hpie");
 }
 
 Pid_t Exec(Task call, int argl, void* args)
@@ -242,19 +272,15 @@ Pid_t Exec(Task call, int argl, void* args)
 	temp = malloc(sizeof(Read*));
 	temp->proc = PCBcnt;
 	temp->next = NULL;
-	temp->prev = NULL;
 	if(head==NULL)
 	{
 		head = temp;
-		head->next = head;
-		head->prev = head;
+		tail = head;
 	}
 	else
 	{
-		temp->prev = head->prev;
-		temp->prev->next = temp;
-		head->prev = temp;
-		temp->next = head;
+		tail->next = temp;
+		tail = tail->next;
 	}
 	Mutex_Unlock(&kernel_lock);
 	return ProcessTable[PCBcnt].pid;//curproc->pid;
@@ -289,7 +315,7 @@ void boot(Task boot_task, int argl, void* args)
 	PCBcnt = 0;
 	curproc=NULL;
 	head = NULL;
-	//tail = head;
+	tail = head;
 	sigemptyset(&scheduler_sigmask);
 	sigaddset(&scheduler_sigmask, SIGVTALRM);
 	quantum_itimer.it_interval.tv_sec = 0L;
