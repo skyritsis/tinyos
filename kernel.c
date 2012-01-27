@@ -86,8 +86,10 @@ void schedule(int sig){
 	resume_scheduling();
 	curproc->proc = new;
 	//printf("\nold %d new %d curproc %d",old->pid,new->pid,curproc->pid);
-	if(old!=new)
+	if(old!=new){
+		//printf("\nold %d new %d curproc %d",old->pid,new->pid,curproc->proc->pid);
 		swapcontext(&(old->context),&(new->context));
+	}
 }
 
 void wakeup(Pid_t pid){
@@ -101,6 +103,7 @@ void release_and_sleep(Mutex* cv){
 	Mutex_Lock(cv);
 	//printf("\ncurp %d %d %d \n",curproc->proc->pid,head->proc->pid,tail->proc->pid);
 	curproc->proc->state = SLEEPING;
+	printf("%d process is sleeping",curproc->proc->pid);
 	//printf("\ncurp %d %d %d \n",curproc->proc->pid,head->proc->pid,tail->proc->pid);
 	Mutex_Unlock(cv);
 	yield();
@@ -120,7 +123,7 @@ void run_scheduler()
 
 	reset_timer();
 
-	curproc = head->prev;
+	curproc = head;
 	swapcontext(&kernel_context,&curproc->proc->context);
 }
 
@@ -226,6 +229,7 @@ Pid_t Exec(Task call, int argl, void* args)
 {
 	ucontext_t unew;
 	void* stack = malloc(PROCESS_STACK_SIZE);
+	Mutex_Lock(&kernel_lock);
 	PCBcnt = PCBcnt+1;
 	init_context(&unew, stack, PROCESS_STACK_SIZE, call, argl, args);
 	ProcessTable[PCBcnt].context = unew;
@@ -249,6 +253,7 @@ Pid_t Exec(Task call, int argl, void* args)
 		head->prev = temp;
 		temp->next = head;
 	}
+	Mutex_Unlock(&kernel_lock);
 	return 1;//curproc->pid;
 }
 
