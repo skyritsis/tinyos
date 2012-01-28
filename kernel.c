@@ -17,7 +17,7 @@
  * Kernel variables
  *
  */
-enum ProcState { READY, SLEEPING, FINISHED };
+enum ProcState { READY, SLEEPING, FINISHED, DEAD };
 
 typedef struct PCB_s {
 	Pid_t parent_pid;
@@ -226,7 +226,7 @@ void runFunc(Task func,int argl,void* args)
 {
 	int x;
 	x=func(argl,args);//trexoyme thn synarthsh poy pernaei san orisma(func)me ta orismata ths(args)
-	yield();
+	//yield();
 	Exit(x);//molis teleiwsei h parapanw synarthsh, termatizoyme thn diergasia
 }
 
@@ -257,8 +257,9 @@ void Exit(int exitval)
 {
 	ProcessTable[curproc->proc].exitvalue=exitval;//8etoyme to exit code ths diergasias iso me to exitval(pernaei san orisma)
 	ProcessTable[curproc->proc].state=FINISHED;//kanoyme to state ths diergasias FINISHED
+	if(curproc->proc == 1)
+		swapcontext(&(ProcessTable[curproc->proc].context),&kernel_context);
 	yield();//trexoyme thn epomenh diergasia(h diergasia poy molis teleiwse bgainei apo th lista toy scheduler
-	printf("\nton hpie");
 }
 
 Pid_t Exec(Task call, int argl, void* args)
@@ -312,11 +313,16 @@ Pid_t WaitChild(Pid_t cpid, int* status)
 				if(ProcessTable[i].parent_pid == ProcessTable[curproc->proc].pid && ProcessTable[i].parent_pid ==cpid){
 					f=1;
 					if(ProcessTable[i].state == FINISHED)
+					{
+						ProcessTable[i].state = DEAD;
+						ProcessTable[i].parent_pid = 0;
 						return ProcessTable[i].pid;
+					}
 				}
 			}
-			if(f==0)
+			if(f==0){
 				return NOPROC;
+			}
 		}
 		else
 		{
@@ -324,20 +330,20 @@ Pid_t WaitChild(Pid_t cpid, int* status)
 			{
 				if(ProcessTable[i].parent_pid == ProcessTable[curproc->proc].pid){
 					f=1;
-					if(ProcessTable[i].state == FINISHED)
+					if(ProcessTable[i].state == FINISHED){
+
+						ProcessTable[i].state = DEAD;
+						ProcessTable[i].parent_pid = 0;
 						return ProcessTable[i].pid;
+					}
 				}
 			}
-			if(f==0)
+			if(f==0){
 				return NOPROC;
+			}
 			yield();
 		}
 	}
-	/*printf("Mpike!");
-	if(ProcessTable[1].state == FINISHED)
-		return ProcessTable[PCBcnt].pid;
-	printf("Mpike!");
-	return NOPROC;*/
 }
 
 /*
@@ -360,6 +366,5 @@ void boot(Task boot_task, int argl, void* args)
 	quantum_itimer.it_value.tv_usec = QUANTUM;
 	Exec(boot_task,argl,args);
 	run_scheduler();
-	printf("eftase");
 }
 
