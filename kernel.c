@@ -75,7 +75,9 @@ void schedule(int sig){
 	pause_scheduling();
 	if(ProcessTable[curproc->proc].state==READY)
 	{
-		tail->next = curproc;
+		i = malloc(sizeof(Read*));
+		i->proc = curproc->proc;
+		tail->next = i;
 		tail = tail->next;
 		tail->next = NULL;
 	}
@@ -100,6 +102,8 @@ void schedule(int sig){
 		getcontext(&old->context);
 }
 
+void yield() {schedule(0);}
+
 void wakeup(Pid_t pid){
 	Read *temp;
 
@@ -115,12 +119,11 @@ void wakeup(Pid_t pid){
 	else
 	{
 		tail->next = temp;
+		tail=tail->next;
 	}
 	yield();
 	//curproc->next=NULL;
 }
-
-void yield() {schedule(0);}
 
 void release_and_sleep(Mutex* cv){
 	ProcessTable[curproc->proc].state = SLEEPING;
@@ -223,6 +226,7 @@ void runFunc(Task func,int argl,void* args)
 {
 	int x;
 	x=func(argl,args);//trexoyme thn synarthsh poy pernaei san orisma(func)me ta orismata ths(args)
+	yield();
 	Exit(x);//molis teleiwsei h parapanw synarthsh, termatizoyme thn diergasia
 }
 
@@ -259,7 +263,7 @@ void Exit(int exitval)
 
 Pid_t Exec(Task call, int argl, void* args)
 {
-	ucontext_t unew;
+	//ucontext_t unew;
 	Read *temp;
 	void* stack = malloc(PROCESS_STACK_SIZE);
 	Mutex_Lock(&kernel_lock);
@@ -275,7 +279,11 @@ Pid_t Exec(Task call, int argl, void* args)
 	if(head==NULL)
 	{
 		head = temp;
-		tail = head;
+	}
+	else if(tail==NULL)
+	{
+		tail = temp;
+		head->next = tail;
 	}
 	else
 	{
@@ -294,9 +302,37 @@ Pid_t GetPid()
 
 Pid_t WaitChild(Pid_t cpid, int* status)
 {
-	while(1)
-		release_and_sleep(&condvar_mutex);
-	return NOPROC;
+	int i,f;
+	while(1){
+		f=0;
+		if(cpid!=NOPROC)
+		{
+			for(i=1;i<=PCBcnt;i++)
+			{
+				if(ProcessTable[i].parent_pid == ProcessTable[curproc->proc].pid && ProcessTable[i].parent_pid ==cpid){
+					f=1;
+					if(ProcessTable[i].state == FINISHED)
+						return ProcessTable[i].pid;
+				}
+			}
+			if(f==0)
+				return NOPROC;
+		}
+		else
+		{
+			for(i=1;i<=PCBcnt;i++)
+			{
+				if(ProcessTable[i].parent_pid == ProcessTable[curproc->proc].pid){
+					f=1;
+					if(ProcessTable[i].state == FINISHED)
+						return ProcessTable[i].pid;
+				}
+			}
+			if(f==0)
+				return NOPROC;
+			yield();
+		}
+	}
 	/*printf("Mpike!");
 	if(ProcessTable[1].state == FINISHED)
 		return ProcessTable[PCBcnt].pid;
